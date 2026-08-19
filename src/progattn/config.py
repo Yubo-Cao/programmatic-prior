@@ -6,7 +6,6 @@ from typing import Any
 
 import yaml
 
-
 CONDITIONS = (
     "flash_baseline",
     "flex_noop",
@@ -91,7 +90,9 @@ class ExperimentConfig:
         sequences = self.sequences_per_step
         micro = self.training.micro_batch_size
         if sequences % micro:
-            raise ValueError("global sequence batch must be divisible by micro_batch_size")
+            raise ValueError(
+                "global sequence batch must be divisible by micro_batch_size"
+            )
         return sequences // micro
 
     @property
