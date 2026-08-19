@@ -13,4 +13,5 @@ artifacts/
 protocol/batch_schedules/
 protocol/initial_states/
 protocol/selected_programs.json
+protocol/program_discovery_report.json
 protocol/frozen_protocol.json
