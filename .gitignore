@@ -1,0 +1,15 @@
+.pixi/
+.pytest_cache/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+data/
+runs/
+logs/
+reports/
+artifacts/
+protocol/batch_schedules/
+protocol/initial_states/
+protocol/selected_programs.json
+protocol/frozen_protocol.json
