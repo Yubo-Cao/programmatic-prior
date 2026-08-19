@@ -45,6 +45,7 @@ def main() -> None:
         slurm / "flash.sbatch",
         slurm / "discover.sbatch",
         slurm / "remaining.sbatch",
+        slurm / "report.sbatch",
     ]
     if args.test_only:
         for script in scripts:
@@ -61,6 +62,8 @@ def main() -> None:
     print(f"discovery={discovery_job}")
     remaining_job = submit(scripts[3], cwd=root, dependency=discovery_job)
     print(f"remaining={remaining_job}")
+    report_job = submit(scripts[4], cwd=root, dependency=remaining_job)
+    print(f"report={report_job}")
 
 
 if __name__ == "__main__":

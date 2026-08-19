@@ -119,15 +119,20 @@ def evaluate(
     store: TokenStore,
     config: ExperimentConfig,
     device: torch.device,
-) -> tuple[float, float]:
+    *,
+    partition: str = "protocol_calibration",
+    max_tokens: int | None = None,
+) -> tuple[float, float, int]:
     model.eval()
     total_loss = 0.0
     total_tokens = 0
     started = time.perf_counter()
+    token_limit = config.training.eval_tokens if max_tokens is None else max_tokens
     for x, y in store.validation_stream(
         block_size=config.model.block_size,
         batch_size=config.training.micro_batch_size,
-        max_tokens=config.training.eval_tokens,
+        max_tokens=token_limit,
+        partition=partition,
         pin_memory=device.type == "cuda",
     ):
         x = x.to(device, non_blocking=True)
@@ -145,7 +150,9 @@ def evaluate(
     if device.type == "cuda":
         torch.cuda.synchronize(device)
     model.train()
-    return total_loss / total_tokens, time.perf_counter() - started
+    if total_tokens == 0:
+        raise RuntimeError(f"evaluation partition {partition!r} produced no tokens")
+    return total_loss / total_tokens, time.perf_counter() - started, total_tokens
 
 
 def _handle_stop(signum: int, frame: FrameType | None) -> None:
@@ -321,7 +328,7 @@ def run() -> int:
 
         evaluated = (step + 1) % config.training.eval_every_steps == 0
         if evaluated or step + 1 == total_steps:
-            latest_validation_nll, evaluation_seconds = evaluate(
+            latest_validation_nll, evaluation_seconds, _ = evaluate(
                 forward, model, store, config, device
             )
             append_jsonl(
