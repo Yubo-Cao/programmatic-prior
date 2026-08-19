@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
-from enum import IntEnum
 import json
 import math
+from collections.abc import Callable, Iterable, Mapping
+from dataclasses import dataclass
+from enum import IntEnum
 from pathlib import Path
-from typing import Iterable
+from typing import cast
 
 import torch
 
@@ -31,17 +32,25 @@ class ProgramSpec:
     preferred_edge_mass: float | None = None
 
     def to_json(self) -> dict[str, object]:
-        result = asdict(self)
-        result["program_type"] = self.program_type.name
-        return result
+        return {
+            "layer": self.layer,
+            "head": self.head,
+            "program_type": self.program_type.name,
+            "parameter": self.parameter,
+            "source_layer": self.source_layer,
+            "source_head": self.source_head,
+            "weighted_iou": self.weighted_iou,
+            "js_divergence": self.js_divergence,
+            "preferred_edge_mass": self.preferred_edge_mass,
+        }
 
     @classmethod
-    def from_json(cls, value: dict[str, object]) -> "ProgramSpec":
+    def from_json(cls, value: Mapping[str, object]) -> ProgramSpec:
         return cls(
-            layer=int(value["layer"]),
-            head=int(value["head"]),
-            program_type=ProgramType[str(value["program_type"])],
-            parameter=int(value.get("parameter", 0)),
+            layer=_required_int(value.get("layer"), "layer"),
+            head=_required_int(value.get("head"), "head"),
+            program_type=ProgramType[_required_str(value.get("program_type"))],
+            parameter=_required_int(value.get("parameter", 0), "parameter"),
             source_layer=_optional_int(value.get("source_layer")),
             source_head=_optional_int(value.get("source_head")),
             weighted_iou=_optional_float(value.get("weighted_iou")),
@@ -50,12 +59,30 @@ class ProgramSpec:
         )
 
 
+def _required_int(value: object, name: str) -> int:
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise TypeError(f"{name} must be an integer")
+    return value
+
+
+def _required_str(value: object) -> str:
+    if not isinstance(value, str):
+        raise TypeError("program_type must be a string")
+    return value
+
+
 def _optional_int(value: object) -> int | None:
-    return None if value is None else int(value)
+    if value is None:
+        return None
+    return _required_int(value, "optional integer")
 
 
 def _optional_float(value: object) -> float | None:
-    return None if value is None else float(value)
+    if value is None:
+        return None
+    if not isinstance(value, int | float) or isinstance(value, bool):
+        raise TypeError("optional float must be numeric")
+    return float(value)
 
 
 def candidate_programs() -> tuple[tuple[ProgramType, int], ...]:
@@ -76,9 +103,18 @@ def inverse_softplus(value: float) -> float:
 def load_programs(path: str | Path) -> list[ProgramSpec]:
     source = Path(path)
     with source.open("r", encoding="utf-8") as handle:
-        raw = json.load(handle)
-    entries = raw["programs"] if isinstance(raw, dict) else raw
-    return [ProgramSpec.from_json(entry) for entry in entries]
+        raw: object = json.load(handle)
+    entries: object = raw.get("programs") if isinstance(raw, dict) else raw
+    if not isinstance(entries, list):
+        raise TypeError("program file must contain a list")
+    result: list[ProgramSpec] = []
+    for entry in entries:
+        if not isinstance(entry, dict) or not all(
+            isinstance(key, str) for key in entry
+        ):
+            raise TypeError("each program must be an object with string keys")
+        result.append(ProgramSpec.from_json(cast(dict[str, object], entry)))
+    return result
 
 
 def save_programs(
@@ -111,7 +147,9 @@ def program_tensors(
         if not 0 <= spec.head < n_head:
             raise ValueError(f"head {spec.head} is invalid for n_head={n_head}")
         if types[spec.head].item() != ProgramType.NONE:
-            raise ValueError(f"multiple programs assigned to layer {layer}, head {spec.head}")
+            raise ValueError(
+                f"multiple programs assigned to layer {layer}, head {spec.head}"
+            )
         types[spec.head] = int(spec.program_type)
         params[spec.head] = spec.parameter
     return types, params
@@ -161,8 +199,17 @@ def make_score_mod(
     layer: int,
     incorrect: bool,
     control_seed: int,
-):
-    def score_mod(score, batch, head, q_idx, kv_idx):
+) -> Callable[
+    [torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor],
+    torch.Tensor,
+]:
+    def score_mod(
+        score: torch.Tensor,
+        batch: torch.Tensor,
+        head: torch.Tensor,
+        q_idx: torch.Tensor,
+        kv_idx: torch.Tensor,
+    ) -> torch.Tensor:
         del batch
         logical_k = kv_idx
         if incorrect:
