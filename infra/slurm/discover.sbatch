@@ -19,7 +19,7 @@ cd "$project_root"
 export PIXI_CACHE_DIR="$project_root/.cache/pixi"
 export PYTHONUNBUFFERED=1
 
-srun "$pixi_bin" run python -m progattn.discover \
+"$pixi_bin" run python -m progattn.discover \
   --config configs/pilot_gpt2_small.yaml \
   --checkpoint runs/pilot/101/flash_baseline/checkpoints/last.pt \
   --output protocol/selected_programs.json \

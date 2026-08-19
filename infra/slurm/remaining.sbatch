@@ -31,7 +31,7 @@ export PYTHONUNBUFFERED=1
 export OMP_NUM_THREADS="$SLURM_CPUS_PER_TASK"
 
 set +e
-srun "$pixi_bin" run python -m progattn.train \
+"$pixi_bin" run python -m progattn.train \
   --config configs/pilot_gpt2_small.yaml \
   --condition "$condition" \
   --output "runs/pilot/101/$condition"
