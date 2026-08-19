@@ -139,7 +139,7 @@ def evaluate(
             loss = result[1]
         if loss is None:
             raise RuntimeError("evaluation did not produce a loss")
-        tokens = y.numel()
+        tokens = int(y.ne(-100).sum().item())
         total_loss += float(loss.item()) * tokens
         total_tokens += tokens
     if device.type == "cuda":

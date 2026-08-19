@@ -50,6 +50,7 @@ class TokenStore:
     ) -> Iterator[tuple[torch.Tensor, torch.Tensor]]:
         story_ids = self.validation_partitions[partition]
         sequences: list[np.ndarray] = []
+        valid_target_counts: list[int] = []
         yielded_tokens = 0
         for story_id in story_ids:
             start = int(self.validation_offsets[story_id])
@@ -59,19 +60,24 @@ class TokenStore:
                 chunk = story[position : position + block_size + 1]
                 if len(chunk) < 2:
                     continue
+                valid_target_count = len(chunk) - 1
                 if len(chunk) < block_size + 1:
                     padded = np.full(block_size + 1, 50256, dtype=np.int64)
                     padded[: len(chunk)] = chunk
                     chunk = padded
                 sequences.append(chunk)
+                valid_target_counts.append(valid_target_count)
                 if len(sequences) == batch_size:
-                    yield _sequence_batch(sequences, pin_memory)
-                    yielded_tokens += batch_size * block_size
+                    yield _masked_sequence_batch(
+                        sequences, valid_target_counts, pin_memory
+                    )
+                    yielded_tokens += sum(valid_target_counts)
                     sequences = []
+                    valid_target_counts = []
                     if yielded_tokens >= max_tokens:
                         return
         if sequences and yielded_tokens < max_tokens:
-            yield _sequence_batch(sequences, pin_memory)
+            yield _masked_sequence_batch(sequences, valid_target_counts, pin_memory)
 
     def discovery_batches(
         self,
@@ -107,6 +113,21 @@ def _sequence_batch(
 ) -> tuple[torch.Tensor, torch.Tensor]:
     batch = torch.from_numpy(np.stack(sequences))
     x, y = batch[:, :-1], batch[:, 1:]
+    if pin_memory:
+        x = x.pin_memory()
+        y = y.pin_memory()
+    return x, y
+
+
+def _masked_sequence_batch(
+    sequences: Sequence[np.ndarray],
+    valid_target_counts: Sequence[int],
+    pin_memory: bool,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    x, y = _sequence_batch(sequences, False)
+    y = y.clone()
+    for row, valid_count in enumerate(valid_target_counts):
+        y[row, valid_count:] = -100
     if pin_memory:
         x = x.pin_memory()
         y = y.pin_memory()
