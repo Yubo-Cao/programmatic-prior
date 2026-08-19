@@ -6,12 +6,20 @@ platforms = ["linux-64"]
 [dependencies]
 python = "3.12.*"
 pip = "*"
+pytest = ">=8.4,<10"
+ruff = ">=0.12,<1"
+ty = ">=0.0.1,<1"
 
 [pypi-dependencies]
 programmatic-attention = { path = ".", editable = true }
 torch = { version = "==2.11.0", index = "https://download.pytorch.org/whl/cu130" }
 
 [tasks]
-test = "pytest -q"
 train = "python -m progattn.train"
 discover = "python -m progattn.discover"
+format = "ruff format ."
+format-check = "ruff format --check ."
+lint = "ruff check ."
+typecheck = "ty check --error-on-warning"
+test = "pytest -q"
+check = { depends-on = ["format-check", "lint", "typecheck", "test"] }

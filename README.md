@@ -19,8 +19,10 @@ Pixi is the only supported environment manager.
 
 ```bash
 pixi install
-pixi run test
+pixi run check
 ```
+
+`pixi run check` verifies Ruff formatting and lint rules, runs strict ty checks, and executes the test suite. Use `pixi run format` before committing code that changes Python files.
 
 The GPU environment uses PyTorch 2.11 with CUDA 13.0 wheels. The job launcher records the exact Python, PyTorch, CUDA, driver, and GPU versions in every run directory.
 

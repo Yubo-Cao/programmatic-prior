@@ -28,3 +28,26 @@ packages = ["src/progattn"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["ANN", "B", "E", "F", "I", "PTH", "RUF", "SIM", "UP"]
+ignore = ["ANN401"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["ANN201"]
+
+[tool.ty.rules]
+blanket-ignore-comment = "error"
+missing-type-argument = "error"
+possibly-unresolved-reference = "warn"
+unsound-return-statement = "error"
+unsound-yield = "error"
+unsupported-dynamic-base = "warn"
+
+[tool.ty.analysis]
+strict-literal-narrowing = true
+strict-generic-narrowing = true
