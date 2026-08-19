@@ -35,7 +35,7 @@ class MetricTotal:
         preferred_edge_mass: torch.Tensor,
         valid_queries: torch.Tensor,
     ) -> None:
-        weights = valid_queries[:, None, :].float()
+        weights = valid_queries.float()
         self.weighted_iou += float((weighted_iou * weights).sum().item())
         self.js_divergence += float((js_divergence * weights).sum().item())
         self.preferred_edge_mass += float((preferred_edge_mass * weights).sum().item())
