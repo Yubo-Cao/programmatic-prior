@@ -1,13 +1,13 @@
 #!/bin/bash
 #SBATCH --job-name=progattn-remaining
 #SBATCH --account=ssci-anima
-#SBATCH --partition=b200
+#SBATCH --partition=b300
 #SBATCH --array=0-2
 #SBATCH --gres=gpu:1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=15
 #SBATCH --mem=180G
-#SBATCH --time=1-00:00:00
+#SBATCH --time=08:00:00
 #SBATCH --signal=USR1@180
 #SBATCH --requeue
 #SBATCH --output=logs/%x_%A_%a.out

@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=progattn-discover
 #SBATCH --account=ssci-anima
-#SBATCH --partition=b200
+#SBATCH --partition=b300
 #SBATCH --gres=gpu:1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=15

@@ -59,7 +59,7 @@ pixi run python -m progattn.discover \
 
 The remaining three conditions may then run independently. All four conditions load the same saved initialization and batch schedule.
 
-The Slurm launchers in `infra/slurm` use Schmidt scratch for data, checkpoints, and logs. Cluster nodes obtain source code with `git clone` or `git pull`; code is not copied between hosts with SCP or SFTP.
+The Slurm launchers in `infra/slurm` use Schmidt B300 GPUs and scratch storage for data, checkpoints, and logs. Cluster nodes obtain source code with `git clone` or `git pull`; code is not copied between hosts with SCP or SFTP.
 
 After cloning the Git repository into Schmidt scratch, install and validate the locked environment:
 
