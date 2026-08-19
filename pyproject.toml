@@ -30,6 +30,7 @@ testpaths = ["tests"]
 addopts = "-ra"
 
 [tool.ruff]
+extend-exclude = ["*.md"]
 line-length = 88
 target-version = "py311"
 

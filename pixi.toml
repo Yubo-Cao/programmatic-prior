@@ -8,6 +8,7 @@ python = "3.12.*"
 pip = "*"
 pytest = ">=8.4,<10"
 ruff = ">=0.12,<1"
+setuptools = "<82"
 ty = ">=0.0.1,<1"
 
 [pypi-dependencies]
