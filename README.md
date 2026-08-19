@@ -75,7 +75,7 @@ Submit the dependency chain only from a clean checkout:
 pixi run python scripts/submit_schmidt.py
 ```
 
-This creates a CPU preprocessing job, the Flash reference job, a dependent discovery job, and a three-task array for the remaining arms. The trainer checkpoints before a scheduled time-limit signal and the Slurm scripts requeue the run from its last completed step.
+This creates a preprocessing job, the Flash reference job, a dependent discovery job, and a three-task array for the remaining arms. Schmidt currently requires every job in the account's available partitions to request a GPU, including preprocessing. The trainer checkpoints before a scheduled time-limit signal and the Slurm scripts requeue the run from its last completed step.
 
 After all four runs complete, create the pilot report:
 
