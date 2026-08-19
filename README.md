@@ -61,6 +61,30 @@ The remaining three conditions may then run independently. All four conditions l
 
 The Slurm launchers in `infra/slurm` use Schmidt scratch for data, checkpoints, and logs. Cluster nodes obtain source code with `git clone` or `git pull`; code is not copied between hosts with SCP or SFTP.
 
+After cloning the Git repository into Schmidt scratch, install and validate the locked environment:
+
+```bash
+pixi install --locked
+pixi run check
+pixi run python scripts/submit_schmidt.py --test-only
+```
+
+Submit the dependency chain only from a clean checkout:
+
+```bash
+pixi run python scripts/submit_schmidt.py
+```
+
+This creates a CPU preprocessing job, the Flash reference job, a dependent discovery job, and a three-task array for the remaining arms. The trainer checkpoints before a scheduled time-limit signal and the Slurm scripts requeue the run from its last completed step.
+
+After all four runs complete, create the pilot report:
+
+```bash
+pixi run python scripts/make_report.py \
+  --runs runs/pilot/101 \
+  --output reports/pilot/101
+```
+
 ## Scope
 
 This pilot ends after four complete 500-million-token runs and their basic comparison report. It does not claim that a Flash-matched positional program is an objective ground truth. It tests whether that compact approximation is a useful training prior and whether its effect exceeds a density-matched incorrect control.
