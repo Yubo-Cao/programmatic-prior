@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import math
 import random
 import shutil
@@ -173,6 +174,37 @@ def _resume_path(output: Path, resume: str) -> Path | None:
     return candidate
 
 
+def prepare_metrics_for_resume(path: Path, completed_steps: int) -> float:
+    if not path.exists():
+        return 0.0
+
+    retained: list[str] = []
+    training_seconds = 0.0
+    discarded = False
+    with path.open(encoding="utf-8") as handle:
+        for line in handle:
+            record: object = json.loads(line)
+            if not isinstance(record, dict):
+                raise TypeError(f"invalid metric record in {path}")
+            step = record.get("step")
+            if not isinstance(step, int) or isinstance(step, bool):
+                raise TypeError(f"metric record has an invalid step in {path}")
+            if step > completed_steps:
+                discarded = True
+                continue
+            retained.append(line)
+            elapsed = record.get("training_seconds")
+            if record.get("event") == "train" and isinstance(elapsed, int | float):
+                training_seconds = max(training_seconds, float(elapsed))
+
+    if discarded:
+        temporary = path.with_suffix(path.suffix + ".resume.tmp")
+        with temporary.open("w", encoding="utf-8") as handle:
+            handle.writelines(retained)
+        temporary.replace(path)
+    return training_seconds
+
+
 def run() -> int:
     args = parse_args()
     config = load_config(args.config)
@@ -230,6 +262,7 @@ def run() -> int:
     start_step = 0
     tokens_seen = 0
     best_validation_nll = math.inf
+    training_seconds = 0.0
     resume_path = _resume_path(output, args.resume)
     if resume_path is not None:
         checkpoint = load_checkpoint(
@@ -241,6 +274,9 @@ def run() -> int:
         start_step = int(checkpoint["next_step"])
         tokens_seen = int(checkpoint["tokens_seen"])
         best_validation_nll = float(checkpoint["best_validation_nll"])
+        training_seconds = prepare_metrics_for_resume(
+            output / "metrics.jsonl", start_step
+        )
 
     shutil.copy2(config.source_path, output / "config.yaml")
     atomic_json(output / "environment.json", environment_manifest(device))
@@ -267,7 +303,6 @@ def run() -> int:
     if args.max_steps is not None:
         total_steps = min(total_steps, args.max_steps)
     model.train()
-    training_seconds = 0.0
     latest_validation_nll = math.inf
     for step in range(start_step, total_steps):
         current_lr = learning_rate(config, tokens_seen)
