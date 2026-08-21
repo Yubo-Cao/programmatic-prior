@@ -232,3 +232,51 @@ Separately, `flex_noop` recorded `git_dirty: true` in `environment.json`, so its
 ### Progress artifacts
 
 A Chinese-language HTML progress report covering all of the above is generated at `reports/progress_zh.html`, which is untracked because `reports/` is ignored.
+
+## Update 2026-08-21 15:00 EDT — migration to Caltech Resnick HPC
+
+The experiment moved to Caltech because the Schmidt reservation blocker did not lift and the L40S measurement made a full four-arm retrain cheaper than waiting.
+
+### Why the move
+
+Job `97935_[1-2]` never left `ReqNodeNotAvail` and the reservation does not release until 2026-08-23 00:00 EDT, which is roughly thirty hours of waiting before a four-hour run can even start.
+Preflight job `100501` on Schmidt's `l40s` partition measured `matched_program_prior` at 4.62 to 4.74 seconds per step with the `0584b47` gate, against 9.25 seconds per step on a B300 without it.
+That number is what changed the decision: a complete four-arm retrain costs about five hours of wall clock, so it became cheaper to redo all four arms on one accelerator than to finish two arms on another.
+
+Caltech has idle L40S capacity and, critically, zero pending jobs anywhere on the cluster request an L40S; the 219-deep pending queue is dominated by one user requesting 32-node, 512-CPU, 2 TB allocations that block on H200 and H100 resources.
+No reservation covers the `hpc-sm-03-*` L40S nodes.
+GCP and Modal were therefore never needed and nothing was spent.
+
+### Retraining all four arms is what preserves fairness
+
+Finishing only the two stalled prior arms on Caltech would have left the treatment arms on L40S and the controls on B300, which is exactly the accelerator confound the protocol's same-hardware requirement exists to prevent.
+Retraining all four on one GPU model also discharges both provenance caveats recorded above, since every arm then runs on a single commit with a clean working tree and validation padding already masked.
+
+### Every experimental input was verified identical, not assumed
+
+The protocol is designed to be frozen, so the initial state, batch schedule and selected programs are treated as inputs and were reproduced rather than re-derived; re-running discovery would have violated that freeze and changed the experiment.
+
+| Input | Method | Verification |
+|---|---|---|
+| `data/tinystories_gpt2/train.bin` | regenerated from pinned revision `f54c09fd` | SHA-256 `66c5c49a...7500` matches |
+| `data/tinystories_gpt2/validation.bin` | regenerated from pinned revision | SHA-256 `f0d47c00...f5be` matches |
+| `protocol/initial_states/seed_101.pt` | regenerated from `seed_everything(101)` | byte-identical, SHA-256 `5ef04ab9...` matches |
+| `protocol/batch_schedules/seed_101.npy` | copied over SFTP | SHA-256 `ba0263dd...` matches |
+| `protocol/selected_programs.json` | copied over SFTP | SHA-256 `eaaf1915...` matches |
+| torch build | `pixi install` from the same lock file | 2.11.0+cu130 on both clusters |
+
+The initial state deserves particular note.
+It was regenerated rather than transferred, and the result is byte-identical to Schmidt's file including the zip container, which means `torch.save` is deterministic here and the four Caltech arms provably start from the same weights as the four Schmidt arms.
+Tensor content was compared independently of container framing by hashing each tensor's bytes in sorted key order; both clusters report 161 keys and content hash `3e970edc...3fe5`.
+
+### Layout on Caltech
+
+The checkout is at `/resnick/scratch/ycao3/programmatic-prior` on the `gpu` partition under the `tensorlab` account.
+`infra/slurm/caltech_arms.sbatch` submits all four conditions as one array, which is possible only because the protocol is frozen: no arm derives anything another arm needs, so none has to wait for `flash_baseline` and discovery the way the original Schmidt pipeline did.
+Walltime is eight hours against a projected 5.2, deliberately tight so the job backfills rather than sitting behind the long queue; checkpointing every 500 steps plus `--requeue` makes an overrun recoverable.
+
+### The Schmidt jobs were left queued on purpose
+
+`97935` and `97936` were not cancelled.
+They cost nothing while pending, they are a fallback if Caltech fails, and if they do eventually run they yield an independent replication on a different accelerator, which would strengthen rather than confuse the result.
+Do not treat the Caltech run as a reason to cancel them.
