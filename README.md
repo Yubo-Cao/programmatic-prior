@@ -2,6 +2,8 @@
 
 This repository contains a four-run GPT-2-small pilot on TinyStories. The goal is to test whether a simple positional program, fitted to attention patterns learned by a FlashAttention model, can help a new model train without reducing final language-model quality.
 
+The current execution status, job history, recovery notes, and takeover checklist are in [EXPERIMENT_HANDOFF.md](EXPERIMENT_HANDOFF.md).
+
 The pilot trains one paired seed for 500 million tokens in each condition:
 
 1. A FlashAttention baseline
