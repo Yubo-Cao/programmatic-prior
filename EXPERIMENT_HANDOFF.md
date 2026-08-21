@@ -192,3 +192,43 @@ The experiment is not complete at handoff. A final owner should verify every ite
 - A concise tracked results summary is added to Git and pushed without committing datasets or checkpoints.
 
 Until those checks pass, the pilot supports only an implementation and progress report, not a scientific conclusion.
+
+## Update 2026-08-21 03:16 EDT
+
+The scheduler state was unchanged from handoff: `97935_[1-2]` still pending, `97936` still blocked on its dependency. Nothing was cancelled or resubmitted, so the array keeps its accrued priority and is rank 2 in the `b300` queue.
+
+### The blocker has a fixed end time
+
+`b300` contains exactly one node, `gb301`, with eight GPUs. Reservation `ssci-yejinc-aug2026` holds it with `SPEC_NODES` from 2026-08-19 17:00 until **2026-08-23 00:00 EDT**, and a separate `eval_server` job occupies all eight GPUs. No scheduling is possible before the reservation ends, so pending with `ReqNodeNotAvail` is expected rather than a fault.
+
+### Moving partitions was evaluated and rejected
+
+| Partition | Free GPUs | Pending jobs |
+|---|---:|---:|
+| `b300` | 0 of 8 | 4 |
+| `b200` | 0 of 120 | 149 |
+| `h100` / `h200` | 0 | 5 |
+| `a100` | about 13 | 81 |
+| `l40s` | about 20 | 10 |
+
+`b200` has fifteen nodes but is fully allocated and far more contended than `b300`. `a100` and `l40s` have capacity but are a different accelerator, which breaks the same-hardware requirement in the completion checklist. The binding constraint is the reservation's end time, not the partition choice.
+
+### Prior-arm slowdown was a real defect, now fixed
+
+The prior arms ran at 9.24 seconds per step against 0.48 for the no-op arm. A local benchmark on the same torch build isolated the cause by comparing FlexAttention `score_mod` variants in one process at identical shapes: with the alpha tensor detached the call took 1.14 to 1.22 milliseconds, and with alpha carrying gradient it took 18.7 to 33.7. The 16 to 29 times gap matches the cluster's 19 times. The program logic is nearly free; the cost is that a grad-carrying captured tensor pushes FlexAttention off its fused backward path. Eager fallback was ruled out because no cluster log contains a `recompile_limit` or unfused warning.
+
+The waste was that every one of the twelve layers built that modifier, while the eight selected heads occupy only five layers (0, 1, 2, 4, 11). The other seven paid full price to add `alpha * 0`. Commit `0584b47` gates the modifier on `applies_prior`, which requires the layer to own at least one selected head.
+
+The change is performance-only and mathematically exact, and it deliberately leaves `requires_grad` untouched so the optimizer parameter set, and therefore resume from the existing step-500 checkpoints, stay valid. Measured 1.46 times end to end locally; extrapolated on the B300 numbers this is 9.25 to about 4.13 seconds per step, so the remaining 3,315 steps take about 3.8 hours instead of 8.5. The queued job picks this up automatically at launch, so the 14-hour allocation was left alone as headroom.
+
+Head-splitting inside a layer, so only the 8 of 144 head-slots that carry a program pay the capture cost, would reach roughly 1 second per step. It was not pursued: the queue wait dominates the timeline, so it would buy little wall clock for a materially riskier refactor.
+
+### Two provenance caveats for the final report
+
+The periodic validation NLL for `flash_baseline` and `flex_noop` is unusable. Both ran on commit `a388803`, before `5df66c9` masked validation padding, and their validation NLL rises from 5.64 to 9.05 and 9.91 while training loss falls to 1.25. The two prior arms ran on `3e25fb7` and their validation curves behave correctly. The final comparison must come from `final_evaluation.json`.
+
+Separately, `flex_noop` recorded `git_dirty: true` in `environment.json`, so its code provenance is less clean than the other three arms. This should be stated in the final report.
+
+### Progress artifacts
+
+A Chinese-language HTML progress report covering all of the above is generated at `reports/progress_zh.html`, which is untracked because `reports/` is ignored.
