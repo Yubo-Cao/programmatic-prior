@@ -7,7 +7,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=96G
-#SBATCH --time=24:00:00
+#SBATCH --time=08:00:00
 #SBATCH --signal=USR1@180
 #SBATCH --requeue
 #SBATCH --output=logs/%x_%A_%a.out
