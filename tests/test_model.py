@@ -1,8 +1,14 @@
 import torch
 
 from progattn.config import ModelConfig, load_config
-from progattn.model import GPT
+from progattn.model import GPT, Block, CausalSelfAttention
 from progattn.programs import ProgramSpec, ProgramType
+
+
+def attention(model: GPT, layer: int) -> CausalSelfAttention:
+    block = model.blocks[layer]
+    assert isinstance(block, Block)
+    return block.attn
 
 
 def tiny_config() -> ModelConfig:
@@ -59,6 +65,52 @@ def test_zero_warmup_matches_no_prior() -> None:
     matched_logits, _, _ = matched(tokens, force_dense=True)
 
     torch.testing.assert_close(matched_logits, baseline_logits)
+
+
+def test_prior_applies_only_to_layers_owning_a_selected_head() -> None:
+    config = tiny_config()
+    model = GPT(
+        config,
+        condition="matched_program_prior",
+        programs=[ProgramSpec(0, 0, ProgramType.PREVIOUS_K, 1)],
+        strict_flash=False,
+    )
+
+    assert attention(model, 0).applies_prior
+    assert not attention(model, 1).applies_prior
+    # Every layer still exposes a trainable raw_alpha, so the optimizer parameter set
+    # and therefore checkpoint resume stay unchanged by the gate.
+    assert all(attention(model, layer).raw_alpha.requires_grad for layer in (0, 1))
+
+
+def test_skipping_program_free_layers_is_numerically_free() -> None:
+    """The gate must not change any score: a program-free layer adds alpha * 0."""
+    config = tiny_config()
+    program = ProgramSpec(0, 0, ProgramType.PREVIOUS_K, 1)
+    gated = GPT(
+        config,
+        condition="matched_program_prior",
+        programs=[program],
+        strict_flash=False,
+    )
+    forced = GPT(
+        config,
+        condition="matched_program_prior",
+        programs=[program],
+        strict_flash=False,
+    )
+    forced.load_state_dict(gated.state_dict())
+    # Make the program-free layer claim a program so it builds the modifier anyway.
+    attention(forced, 1).has_programs = True
+    for model in (gated, forced):
+        model.set_prior_progress(1000, warmup_tokens=100)
+    tokens = torch.randint(0, 64, (2, 16))
+
+    gated_logits, _, _ = gated(tokens, force_dense=True)
+    forced_logits, _, _ = forced(tokens, force_dense=True)
+
+    assert attention(forced, 1).applies_prior
+    torch.testing.assert_close(gated_logits, forced_logits, atol=0.0, rtol=0.0)
 
 
 def test_gpt2_small_parameter_count() -> None:

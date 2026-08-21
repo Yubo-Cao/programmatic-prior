@@ -78,6 +78,7 @@ class CausalSelfAttention(nn.Module):
         self.resid_dropout: nn.Dropout = nn.Dropout(config.dropout)
 
         types, params = program_tensors(programs, layer=layer, n_head=config.n_head)
+        self.has_programs = bool(types.ne(0).any().item())
         self.program_types: torch.Tensor
         self.program_params: torch.Tensor
         self.prior_warmup_scale: torch.Tensor
@@ -94,6 +95,16 @@ class CausalSelfAttention(nn.Module):
     @property
     def uses_prior(self) -> bool:
         return self.condition in {"matched_program_prior", "incorrect_program_prior"}
+
+    @property
+    def applies_prior(self) -> bool:
+        """Whether the prior can change any score in this layer.
+
+        A layer that owns no selected head would only ever add ``alpha * 0``. Building
+        the score modifier anyway makes FlexAttention differentiate through a captured
+        grad-carrying tensor, which costs an order of magnitude per step for nothing.
+        """
+        return self.uses_prior and self.has_programs
 
     def set_prior_warmup_scale(self, value: float) -> None:
         self.prior_warmup_scale.fill_(value)
@@ -143,7 +154,7 @@ class CausalSelfAttention(nn.Module):
         if self._block_mask is None:
             raise RuntimeError("call prepare_attention before using FlexAttention")
         score_mod = noop_score_mod
-        if self.uses_prior:
+        if self.applies_prior:
             score_mod = make_score_mod(
                 self.program_types,
                 self.program_params,
@@ -182,7 +193,7 @@ class CausalSelfAttention(nn.Module):
             device=q.device,
         ).tril()
         scores = scores.masked_fill(~causal, float("-inf"))
-        if apply_prior and self.uses_prior:
+        if apply_prior and self.applies_prior:
             mask = dense_program_mask(
                 self.program_types,
                 self.program_params,
