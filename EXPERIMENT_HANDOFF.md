@@ -329,5 +329,7 @@ And the remote checkout had drifted three commits behind and did not contain `ca
 
 ### Schmidt
 
-`97935_[1-2]` and `97936` are still queued and still untouched, and they are no longer on the critical path.
-Keeping them costs nothing and would provide a B300 replication; cancelling them is now a reasonable choice too, and that call is the user's.
+The user decided on 2026-08-22 that no B300 replication is needed and that the Caltech results stand as the result of record, so `97935_[1-2]` and `97936` were cancelled at 12:43 EDT that day.
+Neither had ever been allocated a node, so `sacct` reports both as `CANCELLED` with `0.00` GPU-hours and nothing was spent on them.
+The unrelated job `100158` (`refract-response-metrics`, a different project) was left alone and is still pending in `b300`.
+The two-hourly monitoring cron was removed at the same time, since the experiment is finished and the Schmidt queue is now empty.
