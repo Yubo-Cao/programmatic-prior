@@ -280,3 +280,54 @@ Walltime is eight hours against a projected 5.2, deliberately tight so the job b
 `97935` and `97936` were not cancelled.
 They cost nothing while pending, they are a fallback if Caltech fails, and if they do eventually run they yield an independent replication on a different accelerator, which would strengthen rather than confuse the result.
 Do not treat the Caltech run as a reason to cancel them.
+
+## Update 2026-08-22 02:19 EDT — the experiment is finished, and the result is a null
+
+All four arms trained to completion on Caltech and the held-out evaluation is done.
+Job `1387686` exited `0:0` in 1m36s and its log ends with `REPORT PIPELINE DONE`.
+Every item in the completion checklist now passes.
+
+### The result
+
+Recomputed from the four final checkpoints on the held-out `final_evaluation` partition, all four arms scoring the identical 1,054,031 tokens on the same device with the same code:
+
+| rank | condition | held-out NLL | perplexity | Δ vs best | alpha mean |
+|---|---|---:|---:|---:|---:|
+| 1 | `flex_noop` | 1.2939937 | 3.6473239 | — | — |
+| 2 | `flash_baseline` | 1.2943585 | 3.6486548 | +0.0003648 | — |
+| 3 | `incorrect_program_prior` | 1.2943903 | 3.6487706 | +0.0003966 | 0.0780 |
+| 4 | `matched_program_prior` | 1.2946841 | 3.6498429 | +0.0006904 | 0.1338 |
+
+The matched prior did not help; it ranked last of four, and the entire spread across all arms is 0.00069 nats, a 0.069% difference in perplexity.
+The direction is what matters most here: because the treatment arm is worse than both controls, the hypothesis fails regardless of whether the difference is statistically distinguishable from zero.
+
+The one genuinely informative positive finding is that the model *used* the prior.
+The matched arm's learned alpha averages 0.1338 against the incorrect arm's 0.0780, a factor of 1.72, so the model can tell a matched program set from a mismatched one and weights it accordingly.
+That rules out the trivial explanation that the prior was simply ignored, and pushes the conclusion toward the stronger claim that this inductive bias has no value for this task.
+
+The cost was real: the prior arms ran at 4.62 s/step against the no-op arm's 0.98 s/step, 4.7x slower, consuming about 7.8 of the experiment's roughly 11.9 GPU-hours to produce a negative return.
+
+### Scope, and the limitation that matters
+
+This holds for GPT-2 small on TinyStories at 500M tokens with a single seed (101) and a program set that is entirely `LOCAL_WINDOW(64)`.
+It does not generalize to "programmatic attention priors do not work"; it says this particular family of local-window priors does not work in this setting.
+The single seed is the important gap, since with one run there is no way to separate a true null from seed noise swamping a small effect, and closing it is the first thing the next session should do.
+A second, cheaper gap: `evaluate_runs.py` stores only aggregate NLL, so no confidence interval can be computed after the fact; saving per-sequence losses would allow a paired bootstrap that exploits how correlated the four arms are.
+
+### An environment failure worth knowing about
+
+The first evaluation attempt, job `1379566`, died three seconds in with `ModuleNotFoundError: No module named 'typing_extensions'`, which torch imports at `__init__.py` line 34.
+At 17:02 that day something re-solved the pixi environment — the pytest stack appears with that timestamp — and a PyPI resolver clobbered the conda-provided `typing_extensions`, leaving a dist-info directory with an empty `RECORD` and no module file.
+The training runs were untouched because all four finished at 13:00, 13:02, 16:51 and 16:52, before the corruption, and a sweep of every `dist-info/RECORD` confirmed `typing_extensions` was the only damaged package.
+
+The repair deliberately avoided re-solving, since a re-solve could move torch and break consistency with the completed training.
+`pixi install --locked` confirmed the lock and manifest agree but skipped the missing file, because pixi's own `conda-meta` record claimed the package was installed; moving that stale record and the corrupt dist-info aside and reinstalling restored the exact locked build `4.16.0-pyhcf101f3_0` with torch still at 2.11.0+cu130.
+
+Two lessons for the next session.
+Getting scheduled on the saturated `gpu` partition required the `debug` QOS, which carries Priority=10000 against `normal`'s 0 in exchange for a 30-minute wall limit — with `normal` the estimated start had degraded to 2026-08-30, and under `debug` the job started within minutes.
+And the remote checkout had drifted three commits behind and did not contain `caltech_report.sbatch` at all; the earlier job only ran because submission injects the script body directly, so verify the remote HEAD before assuming a committed script exists there.
+
+### Schmidt
+
+`97935_[1-2]` and `97936` are still queued and still untouched, and they are no longer on the critical path.
+Keeping them costs nothing and would provide a B300 replication; cancelling them is now a reasonable choice too, and that call is the user's.
