@@ -9,7 +9,13 @@ from typing import Any
 
 import torch
 
-from progattn.config import CONDITIONS, ExperimentConfig, load_config
+from progattn.config import (
+    CONDITIONS,
+    PRIOR_CONDITIONS,
+    ExperimentConfig,
+    load_config,
+    prior_programs_path,
+)
 from progattn.data import TokenStore
 from progattn.model import GPT
 from progattn.programs import ProgramSpec, load_programs
@@ -30,8 +36,8 @@ def parse_args() -> argparse.Namespace:
 def programs_for_condition(
     condition: str, config: ExperimentConfig
 ) -> list[ProgramSpec]:
-    if condition in {"matched_program_prior", "incorrect_program_prior"}:
-        return load_programs(config.prior.selected_programs)
+    if condition in PRIOR_CONDITIONS:
+        return load_programs(prior_programs_path(condition, config))
     return []
 
 

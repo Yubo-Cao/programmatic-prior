@@ -1,0 +1,59 @@
+# Second pilot. Identical to configs/pilot_gpt2_small.yaml except for the prior
+# section, so the frozen initial state and batch schedule of seed 101 are shared
+# with the first pilot and the two are directly comparable.
+#
+# Two things changed, for reasons the first pilot established:
+#   * selected_programs now comes from the enrichment criterion. The pilot ranked
+#     heads by weighted_iou, which is monotone in program width and therefore chose
+#     LOCAL_WINDOW(64) for every head - a set already holding 71-95% of each head's
+#     attention, so the prior asserted almost nothing.
+#   * initial_alpha rises from 0.1 to 4.0. At 0.1 the additive bonus shifted the
+#     preferred-set mass by 1.8 percentage points on average, which is smaller than
+#     the bf16 gap between the two arms that are meant to be equivalent. The prior
+#     stays learnable, so an alpha that decays over training is now evidence the
+#     prior is unhelpful rather than evidence it was never applied.
+
+model:
+  vocab_size: 50257
+  block_size: 512
+  n_layer: 12
+  n_head: 12
+  n_embd: 768
+  mlp_ratio: 4
+  bias: true
+  dropout: 0.0
+  tie_embeddings: true
+
+data:
+  root: data/tinystories_gpt2
+  schedule_dir: protocol/batch_schedules
+  initial_state_dir: protocol/initial_states
+
+training:
+  train_tokens: 500000000
+  global_tokens_per_step: 131072
+  micro_batch_size: 32
+  precision: bf16
+  learning_rate: 0.0005
+  min_learning_rate: 0.00005
+  warmup_tokens: 10000000
+  betas: [0.9, 0.95]
+  weight_decay: 0.1
+  grad_clip: 1.0
+  eval_every_steps: 100
+  eval_tokens: 1048576
+  checkpoint_every_steps: 500
+  seed: 101
+  compile: true
+  strict_flash: true
+
+prior:
+  selected_programs: protocol/selected_programs_v2.json
+  wide_window_programs: protocol/selected_programs.json
+  initial_alpha: 4.0
+  warmup_tokens: 10000000
+  control_seed: 1729
+  selection_count: 8
+  max_per_layer: 2
+  discovery_stories: 256
+  discovery_batch_size: 2

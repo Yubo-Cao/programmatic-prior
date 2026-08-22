@@ -25,10 +25,14 @@ export OMP_NUM_THREADS="$SLURM_CPUS_PER_TASK"
 # runs saturated and a 8-CPU/32G/1.5h job backfills into gaps a larger one misses.
 # Scoring all four checkpoints inside one job is also what keeps the comparison
 # fair, since every arm is then evaluated on the same device by the same code.
+config=${PROGATTN_CONFIG:-configs/pilot_gpt2_small.yaml}
+runs=${PROGATTN_RUNS:-runs/pilot/101}
+report_dir=${PROGATTN_REPORT_DIR:-reports/pilot/101}
+
 "$pixi_bin" run python scripts/evaluate_runs.py \
-  --config configs/pilot_gpt2_small.yaml \
-  --runs runs/pilot/101 \
+  --config "$config" \
+  --runs "$runs" \
   --partition final_evaluation
 "$pixi_bin" run python scripts/make_report.py \
-  --runs runs/pilot/101 \
-  --output reports/pilot/101
+  --runs "$runs" \
+  --output "$report_dir"

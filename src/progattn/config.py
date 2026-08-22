@@ -11,7 +11,19 @@ CONDITIONS = (
     "flex_noop",
     "matched_program_prior",
     "incorrect_program_prior",
+    "wide_window_control",
 )
+
+# Which program file each prior arm reads. ``wide_window_control`` reuses the pilot's
+# width-monotone selection so that a change in outcome can be attributed to the
+# selection criterion rather than to the prior strength, which it shares with the
+# matched arm.
+PRIOR_PROGRAM_SOURCE = {
+    "matched_program_prior": "selected_programs",
+    "incorrect_program_prior": "selected_programs",
+    "wide_window_control": "wide_window_programs",
+}
+PRIOR_CONDITIONS = frozenset(PRIOR_PROGRAM_SOURCE)
 
 
 @dataclass(frozen=True)
@@ -68,6 +80,7 @@ class PriorConfig:
     max_per_layer: int
     discovery_stories: int
     discovery_batch_size: int
+    wide_window_programs: str = ""
 
 
 @dataclass(frozen=True)
@@ -100,6 +113,17 @@ class ExperimentConfig:
         tokens = self.training.train_tokens
         per_step = self.training.global_tokens_per_step
         return (tokens + per_step - 1) // per_step
+
+
+def prior_programs_path(condition: str, config: ExperimentConfig) -> Path:
+    """The program file a prior arm trains against."""
+    field = PRIOR_PROGRAM_SOURCE.get(condition)
+    if field is None:
+        raise ValueError(f"{condition} does not use a program prior")
+    value = getattr(config.prior, field)
+    if not value:
+        raise ValueError(f"{condition} requires prior.{field} to be set")
+    return Path(value)
 
 
 def _strict_dataclass(cls: type[Any], values: dict[str, Any]) -> Any:

@@ -9,7 +9,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-from .config import ModelConfig
+from .config import PRIOR_CONDITIONS, ModelConfig
 from .programs import (
     ProgramSpec,
     dense_program_mask,
@@ -87,14 +87,12 @@ class CausalSelfAttention(nn.Module):
         self.register_buffer("prior_warmup_scale", torch.tensor(0.0), persistent=False)
         raw_alpha = torch.full((config.n_head,), inverse_softplus(initial_alpha))
         self.raw_alpha: nn.Parameter = nn.Parameter(raw_alpha)
-        self.raw_alpha.requires_grad_(
-            condition in {"matched_program_prior", "incorrect_program_prior"}
-        )
+        self.raw_alpha.requires_grad_(condition in PRIOR_CONDITIONS)
         self._block_mask: BlockMask | None = None
 
     @property
     def uses_prior(self) -> bool:
-        return self.condition in {"matched_program_prior", "incorrect_program_prior"}
+        return self.condition in PRIOR_CONDITIONS
 
     @property
     def applies_prior(self) -> bool:

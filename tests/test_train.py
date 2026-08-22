@@ -1,8 +1,16 @@
 import json
 from pathlib import Path
 
+import torch
+import torch.nn.functional as F
+
 from progattn.config import load_config
-from progattn.train import learning_rate, prepare_metrics_for_resume
+from progattn.programs import inverse_softplus
+from progattn.train import (
+    apply_initial_alpha,
+    learning_rate,
+    prepare_metrics_for_resume,
+)
 
 
 def test_learning_rate_schedule() -> None:
@@ -32,3 +40,32 @@ def test_prepare_metrics_for_resume_discards_uncheckpointed_steps(
     retained = [json.loads(line) for line in path.read_text().splitlines()]
     assert retained == records[:3]
     assert elapsed == 2.75
+
+
+def test_initial_state_cannot_pin_the_prior_strength() -> None:
+    """A state frozen at one alpha must not override the configured one.
+
+    The frozen initial state exists to make every arm start from identical weights,
+    and it carries raw_alpha along with them. The first pilot froze it at alpha=0.1,
+    so any later run reusing it would silently train at 0.1 no matter what the config
+    asked for - which would make the prior strength unadjustable without discarding
+    the shared initialization the paired protocol depends on.
+    """
+    config = load_config("configs/pilot_gpt2_small_v2.yaml")
+    stale = inverse_softplus(0.1)
+    state = {
+        "blocks.0.attn.raw_alpha": torch.full((12,), stale),
+        "blocks.1.attn.raw_alpha": torch.full((12,), stale),
+        "blocks.0.attn.qkv.weight": torch.zeros(3, 3),
+    }
+
+    apply_initial_alpha(state, config)
+
+    for name, tensor in state.items():
+        if name.endswith("raw_alpha"):
+            torch.testing.assert_close(
+                F.softplus(tensor),
+                torch.full_like(tensor, config.prior.initial_alpha),
+            )
+    # Weights that are not the prior strength stay untouched.
+    torch.testing.assert_close(state["blocks.0.attn.qkv.weight"], torch.zeros(3, 3))

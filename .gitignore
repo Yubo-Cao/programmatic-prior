@@ -15,3 +15,5 @@ protocol/initial_states/
 protocol/selected_programs.json
 protocol/program_discovery_report.json
 protocol/frozen_protocol.json
+protocol/selected_programs_v2.json
+protocol/program_discovery_report_v2.json

@@ -16,10 +16,16 @@ import numpy as np
 import torch
 
 from .checkpoint import load_checkpoint, save_checkpoint
-from .config import CONDITIONS, ExperimentConfig, load_config
+from .config import (
+    CONDITIONS,
+    PRIOR_CONDITIONS,
+    ExperimentConfig,
+    load_config,
+    prior_programs_path,
+)
 from .data import TokenStore, ensure_batch_schedule
 from .model import GPT, autocast_context, configure_optimizer
-from .programs import load_programs
+from .programs import inverse_softplus, load_programs
 from .utils import append_jsonl, atomic_json, environment_manifest
 
 _STOP_REQUESTED = False
@@ -65,6 +71,23 @@ def initial_state_path(config: ExperimentConfig) -> Path:
 
 def schedule_path(config: ExperimentConfig) -> Path:
     return Path(config.data.schedule_dir) / f"seed_{config.training.seed}.npy"
+
+
+def apply_initial_alpha(
+    state: dict[str, torch.Tensor], config: ExperimentConfig
+) -> None:
+    """Force every ``raw_alpha`` in a frozen initial state to the configured strength.
+
+    The initial state is shared across arms so that they start from bit-identical
+    weights, but it also carries ``raw_alpha``, which is inert in the arms without a
+    prior and is the one knob a prior arm is meant to vary. Without this override a
+    state frozen at one ``initial_alpha`` would silently pin every later run to that
+    value, and the prior strength in the config would have no effect at all.
+    """
+    value = inverse_softplus(config.prior.initial_alpha)
+    for name, tensor in state.items():
+        if name.endswith("raw_alpha"):
+            state[name] = torch.full_like(tensor, value)
 
 
 def ensure_initial_state(model: GPT, config: ExperimentConfig) -> Path:
@@ -216,8 +239,10 @@ def run() -> int:
         raise RuntimeError("CUDA was requested but is unavailable")
 
     programs = []
-    if args.condition in {"matched_program_prior", "incorrect_program_prior"}:
-        programs = load_programs(config.prior.selected_programs)
+    programs_path = None
+    if args.condition in PRIOR_CONDITIONS:
+        programs_path = prior_programs_path(args.condition, config)
+        programs = load_programs(programs_path)
         if not programs:
             raise RuntimeError("the prior condition requires selected programs")
 
@@ -232,6 +257,7 @@ def run() -> int:
     )
     initial_path = ensure_initial_state(model, config)
     raw_initial: Any = torch.load(initial_path, map_location="cpu", weights_only=True)
+    apply_initial_alpha(raw_initial["model"], config)
     model.load_state_dict(raw_initial["model"])
     model.to(device)
     model.prepare_attention(device)
@@ -291,9 +317,8 @@ def run() -> int:
             "parameter_count": model.parameter_count(),
             "initial_state": str(initial_path.resolve()),
             "batch_schedule": str(schedule_path(config).resolve()),
-            "programs": str(Path(config.prior.selected_programs).resolve())
-            if programs
-            else None,
+            "programs": str(programs_path.resolve()) if programs_path else None,
+            "initial_alpha": config.prior.initial_alpha,
             "compile_seconds": compile_seconds,
         },
     )
