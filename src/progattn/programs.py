@@ -30,6 +30,8 @@ class ProgramSpec:
     weighted_iou: float | None = None
     js_divergence: float | None = None
     preferred_edge_mass: float | None = None
+    uniform_edge_mass: float | None = None
+    selection_score: float | None = None
 
     def to_json(self) -> dict[str, object]:
         return {
@@ -42,6 +44,8 @@ class ProgramSpec:
             "weighted_iou": self.weighted_iou,
             "js_divergence": self.js_divergence,
             "preferred_edge_mass": self.preferred_edge_mass,
+            "uniform_edge_mass": self.uniform_edge_mass,
+            "selection_score": self.selection_score,
         }
 
     @classmethod
@@ -56,6 +60,8 @@ class ProgramSpec:
             weighted_iou=_optional_float(value.get("weighted_iou")),
             js_divergence=_optional_float(value.get("js_divergence")),
             preferred_edge_mass=_optional_float(value.get("preferred_edge_mass")),
+            uniform_edge_mass=_optional_float(value.get("uniform_edge_mass")),
+            selection_score=_optional_float(value.get("selection_score")),
         )
 
 
