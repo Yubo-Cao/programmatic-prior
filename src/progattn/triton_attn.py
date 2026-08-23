@@ -155,14 +155,14 @@ def _fwd(
                 control_seed,
                 INCORRECT,
             )
-            qk = qk + tl.where(pref, beta, 0.0)
+            qk = qk + tl.where(pref, beta, 0.0).to(tl.float32)
         keep = (
             (offs_m[:, None] >= offs_n[None, :]) & n_valid[None, :] & m_valid[:, None]
         )
-        qk = tl.where(keep, qk, float("-inf"))
+        qk = tl.where(keep, qk, float("-inf")).to(tl.float32)
 
         m_ij = tl.maximum(m_i, tl.max(qk, 1))
-        m_ij = tl.where(m_ij == float("-inf"), 0.0, m_ij)
+        m_ij = tl.where(m_ij == float("-inf"), 0.0, m_ij).to(tl.float32)
         p = tl.exp(qk - m_ij[:, None])
         l_ij = tl.sum(p, 1)
         rescale = tl.exp(m_i - m_ij)
@@ -170,7 +170,7 @@ def _fwd(
         acc = acc * rescale[:, None] + tl.dot(p.to(v.dtype), v).to(tl.float32)
         m_i = m_ij
 
-    l_safe = tl.where(l_i == 0.0, 1.0, l_i)
+    l_safe = tl.where(l_i == 0.0, 1.0, l_i).to(tl.float32)
     acc = acc / l_safe[:, None]
     lse = m_i + tl.log(l_safe)
 
@@ -319,11 +319,11 @@ def _bwd_dkdv(
                 control_seed,
                 INCORRECT,
             )
-            qk = qk + tl.where(pref, beta, 0.0)
+            qk = qk + tl.where(pref, beta, 0.0).to(tl.float32)
         keep = (
             (offs_m[:, None] >= offs_n[None, :]) & n_valid[None, :] & m_valid[:, None]
         )
-        p = tl.where(keep, tl.exp(qk - lse[:, None]), 0.0)
+        p = tl.where(keep, tl.exp(qk - lse[:, None]), 0.0).to(tl.float32)
 
         dv += tl.dot(tl.trans(p).to(do.dtype), do).to(tl.float32)
         dp = tl.dot(do, tl.trans(v)).to(tl.float32)
@@ -402,7 +402,7 @@ def _bwd_dq(
     param = tl.load(Params + off_h) if APPLY_PRIOR else 0
 
     dq = tl.zeros((BLOCK_M, BLOCK_D), tl.float32)
-    dbeta = 0.0
+    dbeta = tl.zeros((1,), tl.float32)
 
     hi = tl.minimum((start_m + 1) * BLOCK_M, T)
     for start_n in range(0, hi, BLOCK_N):
@@ -430,13 +430,13 @@ def _bwd_dq(
                 control_seed,
                 INCORRECT,
             )
-            qk = qk + tl.where(pref, beta, 0.0)
+            qk = qk + tl.where(pref, beta, 0.0).to(tl.float32)
         else:
             pref = offs_m[:, None] < 0
         keep = (
             (offs_m[:, None] >= offs_n[None, :]) & n_valid[None, :] & m_valid[:, None]
         )
-        p = tl.where(keep, tl.exp(qk - lse[:, None]), 0.0)
+        p = tl.where(keep, tl.exp(qk - lse[:, None]), 0.0).to(tl.float32)
         dp = tl.dot(do, tl.trans(v)).to(tl.float32)
         ds = p * (dp - delta[:, None])
         dq += tl.dot(ds.to(k.dtype), k).to(tl.float32) * sm_scale
@@ -444,7 +444,7 @@ def _bwd_dq(
             # beta is constant on the preferred set, so its gradient is just the
             # sum of the score gradients there. Accumulating in a register and
             # committing once per block is what keeps this off the critical path.
-            dbeta += tl.sum(tl.where(pref & keep, ds, 0.0))
+            dbeta += tl.sum(tl.where(pref & keep, ds, 0.0).to(tl.float32))
 
     tl.store(
         DQ + base + offs_m[:, None] * stride_qm + offs_d[None, :] * stride_qd,
@@ -452,7 +452,7 @@ def _bwd_dq(
         mask=m_valid[:, None],
     )
     if APPLY_PRIOR:
-        tl.atomic_add(DBeta + off_h, dbeta)
+        tl.atomic_add(DBeta + off_h + tl.arange(0, 1), dbeta)
 
 
 def _blocks(sequence_length: int) -> tuple[int, int]:
