@@ -73,7 +73,7 @@ def make_inputs(
 def check(args: argparse.Namespace) -> bool:
     device = torch.device("cuda")
     dtype = torch.float32
-    batch, heads, length = 2, 6, 80
+    batch, heads, length = 2, 6, args.check_length
     types = torch.zeros(heads, dtype=torch.int32, device=device)
     params = torch.zeros(heads, dtype=torch.int32, device=device)
     plan = [
@@ -299,6 +299,16 @@ def main() -> None:
     parser.add_argument("--layer", type=int, default=3)
     parser.add_argument("--control-seed", type=int, default=1729)
     parser.add_argument("--iterations", type=int, default=30)
+    parser.add_argument(
+        "--check-length",
+        type=int,
+        default=80,
+        help=(
+            "sequence length for the correctness pass. 80 is deliberately not a "
+            "multiple of the 64-wide block so the masked tail is exercised; drop "
+            "to 32 to fit the larger shared-memory footprint of IEEE fp32 dots."
+        ),
+    )
     parser.add_argument("--skip-check", action="store_true")
     parser.add_argument("--skip-bench", action="store_true")
     args = parser.parse_args()
