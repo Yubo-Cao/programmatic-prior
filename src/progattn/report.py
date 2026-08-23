@@ -71,7 +71,7 @@ def summarize_run(path: Path) -> RunSummary:
 
 def markdown_table(summaries: list[RunSummary]) -> str:
     lines = [
-        "# Four-arm pilot report",
+        f"# {len(summaries)}-arm pilot report",
         "",
         (
             "All conditions use the same initialization, batch schedule, "
