@@ -254,6 +254,7 @@ def run() -> int:
         initial_alpha=config.prior.initial_alpha,
         control_seed=config.prior.control_seed,
         strict_flash=config.training.strict_flash,
+        kernel=config.prior.kernel,
     )
     initial_path = ensure_initial_state(model, config)
     raw_initial: Any = torch.load(initial_path, map_location="cpu", weights_only=True)
@@ -319,6 +320,7 @@ def run() -> int:
             "batch_schedule": str(schedule_path(config).resolve()),
             "programs": str(programs_path.resolve()) if programs_path else None,
             "initial_alpha": config.prior.initial_alpha,
+            "attention_kernel": config.prior.kernel,
             "compile_seconds": compile_seconds,
         },
     )

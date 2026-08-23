@@ -61,6 +61,7 @@ def evaluate_condition(
         initial_alpha=config.prior.initial_alpha,
         control_seed=config.prior.control_seed,
         strict_flash=config.training.strict_flash,
+        kernel=config.prior.kernel,
     )
     model.load_state_dict(checkpoint["model"])
     model.to(device)

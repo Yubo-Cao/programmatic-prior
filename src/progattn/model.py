@@ -58,6 +58,7 @@ class CausalSelfAttention(nn.Module):
         initial_alpha: float,
         control_seed: int,
         strict_flash: bool,
+        kernel: str = "flex",
     ) -> None:
         super().__init__()
         self.n_head = config.n_head
@@ -67,6 +68,7 @@ class CausalSelfAttention(nn.Module):
         self.condition = condition
         self.control_seed = control_seed
         self.strict_flash = strict_flash
+        self.kernel = kernel
 
         self.qkv: nn.Linear = nn.Linear(
             config.n_embd, 3 * config.n_embd, bias=config.bias
@@ -111,6 +113,8 @@ class CausalSelfAttention(nn.Module):
         return F.softplus(self.raw_alpha) * self.prior_warmup_scale
 
     def prepare_flex(self, device: torch.device) -> None:
+        if self.kernel == "triton":
+            return
         if not self.condition.startswith("flex") and not self.uses_prior:
             return
         from torch.nn.attention.flex_attention import create_block_mask
@@ -171,6 +175,31 @@ class CausalSelfAttention(nn.Module):
         if not isinstance(result, torch.Tensor):
             raise TypeError("FlexAttention returned unexpected auxiliary output")
         return result
+
+    def _triton(
+        self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor
+    ) -> torch.Tensor:
+        """Exact causal attention with the prior folded into the kernel.
+
+        The FlexAttention path spends two orders of magnitude differentiating
+        through a captured ``alpha()``; here the per-head bonus is added inside the
+        flash loop and its gradient is reduced in registers, so a prior-carrying
+        layer costs about what a plain one does.
+        """
+        from .triton_attn import program_attention
+
+        return program_attention(
+            q,
+            k,
+            v,
+            self.alpha(),
+            self.program_types,
+            self.program_params,
+            layer=self.layer,
+            control_seed=self.control_seed,
+            incorrect=self.condition == "incorrect_program_prior",
+            apply_prior=self.applies_prior,
+        )
 
     def _dense(
         self,
@@ -240,6 +269,8 @@ class CausalSelfAttention(nn.Module):
             )
         elif self.condition == "flash_baseline":
             y = self._flash(q, k, v)
+        elif self.kernel == "triton":
+            y = self._triton(q, k, v)
         else:
             y = self._flex(q, k, v)
         y = y.transpose(1, 2).contiguous().view(batch_size, sequence_length, channels)
@@ -271,6 +302,7 @@ class Block(nn.Module):
         initial_alpha: float,
         control_seed: int,
         strict_flash: bool,
+        kernel: str = "flex",
     ) -> None:
         super().__init__()
         self.ln_1: nn.LayerNorm = nn.LayerNorm(config.n_embd, bias=config.bias)
@@ -282,6 +314,7 @@ class Block(nn.Module):
             initial_alpha=initial_alpha,
             control_seed=control_seed,
             strict_flash=strict_flash,
+            kernel=kernel,
         )
         self.ln_2: nn.LayerNorm = nn.LayerNorm(config.n_embd, bias=config.bias)
         self.mlp: MLP = MLP(config)
@@ -320,6 +353,7 @@ class GPT(nn.Module):
         initial_alpha: float = 0.1,
         control_seed: int = 1729,
         strict_flash: bool = True,
+        kernel: str = "flex",
     ) -> None:
         super().__init__()
         programs = programs or []
@@ -340,6 +374,7 @@ class GPT(nn.Module):
                 programs=programs,
                 initial_alpha=initial_alpha,
                 control_seed=control_seed,
+                kernel=kernel,
                 strict_flash=strict_flash,
             )
             for layer in range(config.n_layer)

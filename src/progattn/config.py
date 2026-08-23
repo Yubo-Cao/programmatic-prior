@@ -81,6 +81,7 @@ class PriorConfig:
     discovery_stories: int
     discovery_batch_size: int
     wide_window_programs: str = ""
+    kernel: str = "flex"
 
 
 @dataclass(frozen=True)
