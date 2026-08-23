@@ -34,7 +34,8 @@ def reference(
     apply_prior: bool,
 ) -> torch.Tensor:
     length = q.size(-2)
-    scores = q.float() @ k.float().transpose(-2, -1) / math.sqrt(q.size(-1))
+    work = torch.float64 if q.dtype == torch.float64 else torch.float32
+    scores = q.to(work) @ k.to(work).transpose(-2, -1) / math.sqrt(q.size(-1))
     causal = torch.ones(length, length, dtype=torch.bool, device=q.device).tril()
     if apply_prior:
         mask = dense_program_mask(
@@ -45,9 +46,9 @@ def reference(
             incorrect=incorrect,
             control_seed=control_seed,
         )
-        scores = scores + beta.float()[None, :, None, None] * mask[None]
+        scores = scores + beta.to(work)[None, :, None, None] * mask[None]
     scores = scores.masked_fill(~causal, float("-inf"))
-    return torch.softmax(scores, dim=-1) @ v.float()
+    return torch.softmax(scores, dim=-1) @ v.to(work)
 
 
 def make_inputs(
@@ -72,7 +73,7 @@ def make_inputs(
 def check(args: argparse.Namespace) -> bool:
     device = torch.device("cuda")
     dtype = torch.float32
-    heads = args.heads
+    batch, heads, length = 2, 6, 80
     types = torch.zeros(heads, dtype=torch.int32, device=device)
     params = torch.zeros(heads, dtype=torch.int32, device=device)
     plan = [
@@ -90,13 +91,11 @@ def check(args: argparse.Namespace) -> bool:
 
     ok = True
     for incorrect in (False, True):
-        q, k, v = make_inputs(
-            args.batch, heads, args.length, args.dim, device, dtype, 7
-        )
+        q, k, v = make_inputs(batch, heads, length, args.dim, device, dtype, 7)
         beta = torch.full((heads,), 4.0, device=device, dtype=torch.float32)
         beta.requires_grad_(True)
         grad_seed = torch.randn(
-            (args.batch, heads, args.length, args.dim),
+            (batch, heads, length, args.dim),
             device=device,
             dtype=dtype,
             generator=torch.Generator(device=device).manual_seed(11),
@@ -152,16 +151,18 @@ def check(args: argparse.Namespace) -> bool:
         # Finite difference on a single head's beta, which pins the scale of the
         # atomic reduction independently of the analytic derivation.
         head = 0
-        epsilon = 1e-2
+        epsilon = 1e-3
+        q64, k64, v64 = (t.detach().double() for t in (q, k, v))
+        seed64 = grad_seed.double()
         with torch.no_grad():
             losses = []
             for sign in (1.0, -1.0):
-                shifted = beta.detach().clone()
+                shifted = beta.detach().double().clone()
                 shifted[head] += sign * epsilon
                 value = reference(
-                    q.detach(),
-                    k.detach(),
-                    v.detach(),
+                    q64,
+                    k64,
+                    v64,
                     shifted,
                     types,
                     params,
@@ -170,7 +171,7 @@ def check(args: argparse.Namespace) -> bool:
                     incorrect=incorrect,
                     apply_prior=True,
                 )
-                losses.append((value * grad_seed).sum().item())
+                losses.append((value * seed64).sum().item())
         numeric = (losses[0] - losses[1]) / (2 * epsilon)
         assert beta.grad is not None
         analytic = float(beta.grad[head].item())
