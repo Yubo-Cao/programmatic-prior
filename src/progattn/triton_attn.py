@@ -16,6 +16,7 @@ registers and committed with one atomic per block instead of one per element.
 from __future__ import annotations
 
 import math
+import os
 from typing import Any, cast
 
 import torch
@@ -457,8 +458,16 @@ def _bwd_dq(
 
 def _blocks(sequence_length: int) -> tuple[int, int]:
     size = 1 << max(4, min(sequence_length - 1, 63)).bit_length()
-    block = max(16, min(64, size))
-    return block, block
+    block = max(16, min(_tune("BLOCK", 64), size))
+    return block, max(16, min(_tune("BLOCK_N", block), size))
+
+
+def _tune(name: str, default: int) -> int:
+    return int(os.environ.get(f"PROGATTN_{name}", default))
+
+
+def _launch() -> dict[str, int]:
+    return {"num_warps": _tune("WARPS", 4), "num_stages": _tune("STAGES", 3)}
 
 
 class _ProgramAttention(torch.autograd.Function):
@@ -525,6 +534,7 @@ class _ProgramAttention(torch.autograd.Function):
             BLOCK_M=block_m,
             BLOCK_N=block_n,
             BLOCK_D=dim,
+            **_launch(),
         )
         ctx.save_for_backward(q, k, v, out, lse, beta32, types32, params32)
         ctx.layer = layer
@@ -555,6 +565,7 @@ class _ProgramAttention(torch.autograd.Function):
             length,
             BLOCK_M=block_m,
             BLOCK_D=dim,
+            **_launch(),
         )
         dq = torch.zeros_like(q)
         dk = torch.empty_like(k)
@@ -590,6 +601,7 @@ class _ProgramAttention(torch.autograd.Function):
             BLOCK_M=block_m,
             BLOCK_N=block_n,
             BLOCK_D=dim,
+            **_launch(),
         )
         _bwd_dq[(triton.cdiv(length, block_m), batch * heads)](
             q,
@@ -620,6 +632,7 @@ class _ProgramAttention(torch.autograd.Function):
             BLOCK_M=block_m,
             BLOCK_N=block_n,
             BLOCK_D=dim,
+            **_launch(),
         )
         grad_beta = dbeta if ctx.apply_prior else None
         return dq, dk, dv, grad_beta, None, None, None, None, None, None

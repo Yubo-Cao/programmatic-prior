@@ -333,3 +333,41 @@ The user decided on 2026-08-22 that no B300 replication is needed and that the C
 Neither had ever been allocated a node, so `sacct` reports both as `CANCELLED` with `0.00` GPU-hours and nothing was spent on them.
 The unrelated job `100158` (`refract-response-metrics`, a different project) was left alone and is still pending in `b300`.
 The two-hourly monitoring cron was removed at the same time, since the experiment is finished and the Schmidt queue is now empty.
+
+## Update 2026-08-23 — the second pilot reverses the null, and the prior is now nearly free
+
+The v1 null reported above was a null about a *particular* configuration, not about the idea. Two of its inputs were defective, and fixing both flipped the sign of the result.
+
+The first defect was the prior strength. v1 initialised `alpha` at 0.13, which is small enough that the learned bonus never moved the set-versus-complement odds by much; v2 initialises it at 4.0. The second was the program set. v1 selected programs by weighted IOU against the observed attention, which rewards programs that match a head's *shape* even when that shape is what a uniform reader would produce anyway; v2 ranks candidates by enrichment of preferred-edge mass over a uniform reader, which is what actually identifies a head doing something a program can express. The v1 set collapsed to `LOCAL_WINDOW(64)` on every head as a direct consequence.
+
+### The result
+
+Five arms, seed 101, 500M tokens, all trained on one Schmidt L40S and all scored on the identical 1,054,031 held-out tokens on that same device (job `104255` for training, `104805` for evaluation, artifacts in `reports/pilot_v2/101/`):
+
+| rank | condition | held-out NLL | perplexity | Δ vs flash | tokens/s | hours |
+|---|---|---:|---:|---:|---:|---:|
+| 1 | `matched_program_prior` | 1.284155 | 3.612 | −0.009406 | 24415.2 | 5.694 |
+| 2 | `wide_window_control` | 1.289365 | 3.630 | −0.004196 | 28277.6 | 4.913 |
+| 3 | `flex_noop` | 1.292766 | 3.643 | −0.000795 | 133857.4 | 1.039 |
+| 4 | `flash_baseline` | 1.293561 | 3.646 | — | 126661.8 | 1.096 |
+| 5 | `incorrect_program_prior` | 1.294342 | 3.649 | +0.000781 | 24371.4 | 5.702 |
+
+The scale to read this against is the `flash_baseline`-to-`flex_noop` gap of 0.00080 nats. Those two arms are mathematically the same computation on two kernels, so that gap is this experiment's built-in noise floor, measured rather than assumed. Against it the matched prior is worth 11.8 noise units and the wide-window control 5.3, while the incorrect prior lands 1.0 unit on the *wrong* side — indistinguishable from carrying no prior at all, which is exactly what a working negative control should do.
+
+The gain decomposes. `wide_window_control` runs the v1 program set at the v2 prior strength, so the distance between it and `flash_baseline` isolates the strength change, and it accounts for roughly 40 to 45 percent of the total. The enrichment-based program set supplies the rest. Neither fix alone would have produced this; v1 had the right idea with the wrong strength on the wrong programs.
+
+The learned alphas agree with the ranking. The matched arm settles at a mean of 4.40 across its eight prior heads against the incorrect arm's 3.07, so the model still distinguishes a matched program set from a rotated one and weights it accordingly — the same qualitative signal v1 showed, now attached to an actual improvement.
+
+### The 5.5x slowdown was a kernel artifact, and it is fixed
+
+The prior arms ran at 24.4k tokens/s against `flex_noop`'s 133.9k, and that cost dominated the experiment: 11.4 of its 18.4 GPU-hours bought the two prior arms.
+
+None of it was inherent to the prior. The FlexAttention `score_mod` closes over `self.alpha()`, a grad-carrying tensor, so FlexAttention has to differentiate through a captured value and reduce that gradient across the entire score matrix. Measured on an L40S at B=8 H=12 T=512 D=64, forward plus backward: 0.337 ms with no prior, 21.920 ms with it. That predicts 4,210 ms/step of prior overhead at the training batch size against 4,389 ms measured, which is within four percent and confirms the diagnosis rather than merely being consistent with it.
+
+`src/progattn/triton_attn.py` folds the bonus into a Triton flash-attention kernel. Because beta is constant on the preferred set, its gradient is just the sum of the score gradients there, which accumulates in registers and commits with one atomic per block instead of one per element. That runs in 0.282 ms — 77.7x faster than the `score_mod` path, and cheaper than FlexAttention carrying no prior at all.
+
+The kernel is exact, not approximate. Against a dense float32 reference with IEEE fp32 dots it agrees to 5e-7 relative on the output and on every gradient including alpha, and the alpha gradient separately matches a float64 central finite difference to 2.7e-8. `tests/test_triton_attention.py` additionally asserts that the full model produces identical logits, loss, and parameter gradients on both kernels for the matched, incorrect, and no-op conditions.
+
+Two traps are worth recording for anyone editing that file. Triton's real type system makes runtime float arguments, literals, and `tl.where` results all fp32, but Dynamo's *mock* kernel trace under `torch.compile` types a Python float argument as fp64, which surfaces as `Loop-carried variable dk has initial type fp32 but is re-assigned to fp64`. The fix is to keep the scale off the loop-carried accumulators entirely rather than to cast it — `sm_scale.to(tl.float32)` fails under the same mock, because there the argument really is a bare Python float. And `TRITON_F32_DEFAULT=ieee` is what proves exactness; without it TF32 puts a uniform 1e-3 floor under every comparison and a correct kernel looks broken.
+
+`configs/pilot_gpt2_small_v3.yaml` is byte-identical to v2 except for `prior.kernel: triton`, so v2 and v3 are the same experiment on two kernels and their losses are directly comparable.
