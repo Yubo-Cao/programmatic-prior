@@ -1,0 +1,121 @@
+{
+  "runs": [
+    {
+      "alpha": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "values": []
+      },
+      "condition": "flash_baseline",
+      "evaluation_partition": "final_evaluation",
+      "evaluation_points": 39,
+      "evaluation_tokens": 1054031,
+      "final_perplexity": 3.6457459435216375,
+      "final_validation_nll": 1.2935609929514211,
+      "median_tokens_per_second": 126661.7940263044,
+      "steps": 3815,
+      "tokens_seen": 500039680,
+      "training_seconds": 3943.9447874436446
+    },
+    {
+      "alpha": {
+        "max": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "values": []
+      },
+      "condition": "flex_noop",
+      "evaluation_partition": "final_evaluation",
+      "evaluation_points": 39,
+      "evaluation_tokens": 1054031,
+      "final_perplexity": 3.6428469938320465,
+      "final_validation_nll": 1.292765517098297,
+      "median_tokens_per_second": 133857.35360919003,
+      "steps": 3815,
+      "tokens_seen": 500039680,
+      "training_seconds": 3740.0831001228544
+    },
+    {
+      "alpha": {
+        "max": 4.537754535675049,
+        "mean": 4.402147114276886,
+        "min": 4.1833086013793945,
+        "values": [
+          4.368801116943359,
+          4.434077739715576,
+          4.404528617858887,
+          4.40071439743042,
+          4.537754535675049,
+          4.420173168182373,
+          4.467818737030029,
+          4.1833086013793945
+        ]
+      },
+      "condition": "matched_program_prior",
+      "evaluation_partition": "final_evaluation",
+      "evaluation_points": 39,
+      "evaluation_tokens": 1054031,
+      "final_perplexity": 3.6116131090412087,
+      "final_validation_nll": 1.2841545171492206,
+      "median_tokens_per_second": 24415.190434690743,
+      "steps": 3815,
+      "tokens_seen": 500039680,
+      "training_seconds": 20496.638971035063
+    },
+    {
+      "alpha": {
+        "max": 3.1004602909088135,
+        "mean": 3.0671768486499786,
+        "min": 3.017275333404541,
+        "values": [
+          3.0735809803009033,
+          3.0815985202789307,
+          3.1004602909088135,
+          3.0729384422302246,
+          3.058610439300537,
+          3.017275333404541,
+          3.0846776962280273,
+          3.0482730865478516
+        ]
+      },
+      "condition": "incorrect_program_prior",
+      "evaluation_partition": "final_evaluation",
+      "evaluation_points": 39,
+      "evaluation_tokens": 1054031,
+      "final_perplexity": 3.6485959125606255,
+      "final_validation_nll": 1.2943424120952556,
+      "median_tokens_per_second": 24371.38409664356,
+      "steps": 3815,
+      "tokens_seen": 500039680,
+      "training_seconds": 20528.59130115905
+    },
+    {
+      "alpha": {
+        "max": 4.549240589141846,
+        "mean": 4.304099678993225,
+        "min": 4.103750228881836,
+        "values": [
+          4.330361366271973,
+          4.508115768432617,
+          4.103750228881836,
+          4.125776290893555,
+          4.16276741027832,
+          4.309523105621338,
+          4.549240589141846,
+          4.343262672424316
+        ]
+      },
+      "condition": "wide_window_control",
+      "evaluation_partition": "final_evaluation",
+      "evaluation_points": 39,
+      "evaluation_tokens": 1054031,
+      "final_perplexity": 3.6304794920561116,
+      "final_validation_nll": 1.2893647310289615,
+      "median_tokens_per_second": 28277.59437662697,
+      "steps": 3815,
+      "tokens_seen": 500039680,
+      "training_seconds": 17686.003067756927
+    }
+  ]
+}
