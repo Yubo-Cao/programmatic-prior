@@ -1,0 +1,63 @@
+# Third pilot. Identical to configs/pilot_gpt2_small_v2.yaml in every number that
+# can move the loss - same frozen initial state and batch schedule for seed 101,
+# same programs, same initial_alpha - so v2 and v3 are the same experiment run on
+# two different attention kernels and their losses are directly comparable.
+#
+# The only change is prior.kernel. v2 carried the prior in a FlexAttention
+# score_mod, which closes over a grad-carrying alpha; FlexAttention then has to
+# differentiate through a captured tensor and reduce that gradient across the
+# whole score matrix. Measured on an L40S at B=8 H=12 T=512 D=64, forward plus
+# backward: 0.337 ms with no prior, 21.920 ms with it. Folding the bonus into a
+# Triton flash kernel and accumulating the alpha gradient in registers - one
+# atomic per block rather than one per element - brings that to 0.282 ms, which
+# is cheaper than FlexAttention carrying no prior at all.
+#
+# The kernel is exact. Against a float32 dense reference with IEEE fp32 dots it
+# agrees to 5e-7 relative on the output and on every gradient including alpha,
+# and the alpha gradient additionally matches a float64 finite difference.
+
+model:
+  vocab_size: 50257
+  block_size: 512
+  n_layer: 12
+  n_head: 12
+  n_embd: 768
+  mlp_ratio: 4
+  bias: true
+  dropout: 0.0
+  tie_embeddings: true
+
+data:
+  root: data/tinystories_gpt2
+  schedule_dir: protocol/batch_schedules
+  initial_state_dir: protocol/initial_states
+
+training:
+  train_tokens: 500000000
+  global_tokens_per_step: 131072
+  micro_batch_size: 32
+  precision: bf16
+  learning_rate: 0.0005
+  min_learning_rate: 0.00005
+  warmup_tokens: 10000000
+  betas: [0.9, 0.95]
+  weight_decay: 0.1
+  grad_clip: 1.0
+  eval_every_steps: 100
+  eval_tokens: 1048576
+  checkpoint_every_steps: 500
+  seed: 101
+  compile: true
+  strict_flash: true
+
+prior:
+  selected_programs: protocol/selected_programs_v2.json
+  wide_window_programs: protocol/selected_programs.json
+  initial_alpha: 4.0
+  warmup_tokens: 10000000
+  control_seed: 1729
+  selection_count: 8
+  max_per_layer: 2
+  discovery_stories: 256
+  discovery_batch_size: 2
+  kernel: triton
