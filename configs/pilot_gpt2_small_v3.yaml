@@ -6,15 +6,25 @@
 # The only change is prior.kernel. v2 carried the prior in a FlexAttention
 # score_mod, which closes over a grad-carrying alpha; FlexAttention then has to
 # differentiate through a captured tensor and reduce that gradient across the
-# whole score matrix. Measured on an L40S at B=8 H=12 T=512 D=64, forward plus
-# backward: 0.337 ms with no prior, 21.920 ms with it. Folding the bonus into a
-# Triton flash kernel and accumulating the alpha gradient in registers - one
-# atomic per block rather than one per element - brings that to 0.282 ms, which
-# is cheaper than FlexAttention carrying no prior at all.
+# whole score matrix. Measured on an L40S at the training shape B=32 H=12 T=512
+# D=64, forward plus backward: 0.551 ms with no prior, 92.5 ms with it. Folding
+# the bonus into a Triton flash kernel and accumulating the alpha gradient in
+# registers - one atomic per block rather than one per element - brings that to
+# 0.693 ms, a 133x reduction that leaves the prior costing about a quarter of
+# what plain attention costs rather than 168 times more.
 #
 # The kernel is exact. Against a float32 dense reference with IEEE fp32 dots it
 # agrees to 5e-7 relative on the output and on every gradient including alpha,
-# and the alpha gradient additionally matches a float64 finite difference.
+# and the alpha gradient additionally matches a float64 finite difference. Run
+# from the same frozen initial state, v3 tracks v2's loss to 6.5e-5 over twelve
+# steps.
+#
+# Measured end to end on an L40S at seed 101: 1.375 s/step against v2's 5.361,
+# a 3.90x speedup. Running this same kernel with the prior switched off costs
+# 1.368 s/step, so the prior itself now accounts for about 0.03 s/step - two
+# percent, against 4.38 s/step under FlexAttention. The rest of the difference
+# from v2's 0.979 s/step no-prior arm is the kernel swap, not the prior; see
+# EXPERIMENT_HANDOFF.md, which flags that gap as unexplained and worth closing.
 
 model:
   vocab_size: 50257

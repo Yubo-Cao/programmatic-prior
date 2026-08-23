@@ -364,10 +364,36 @@ The prior arms ran at 24.4k tokens/s against `flex_noop`'s 133.9k, and that cost
 
 None of it was inherent to the prior. The FlexAttention `score_mod` closes over `self.alpha()`, a grad-carrying tensor, so FlexAttention has to differentiate through a captured value and reduce that gradient across the entire score matrix. Measured on an L40S at B=8 H=12 T=512 D=64, forward plus backward: 0.337 ms with no prior, 21.920 ms with it. That predicts 4,210 ms/step of prior overhead at the training batch size against 4,389 ms measured, which is within four percent and confirms the diagnosis rather than merely being consistent with it.
 
-`src/progattn/triton_attn.py` folds the bonus into a Triton flash-attention kernel. Because beta is constant on the preferred set, its gradient is just the sum of the score gradients there, which accumulates in registers and commits with one atomic per block instead of one per element. That runs in 0.282 ms — 77.7x faster than the `score_mod` path, and cheaper than FlexAttention carrying no prior at all.
+`src/progattn/triton_attn.py` folds the bonus into a Triton flash-attention kernel. Because beta is constant on the preferred set, its gradient is just the sum of the score gradients there, which accumulates in registers and commits with one atomic per block instead of one per element. That runs in 0.282 ms, 77.7x faster than the `score_mod` path. At B=8 it also beat FlexAttention carrying no prior at all, but that does not survive the move to the training batch size: at B=32 the kernel is 0.693 ms against FlexAttention's 0.551, and the section below measures what that costs in practice.
 
 The kernel is exact, not approximate. Against a dense float32 reference with IEEE fp32 dots it agrees to 5e-7 relative on the output and on every gradient including alpha, and the alpha gradient separately matches a float64 central finite difference to 2.7e-8. `tests/test_triton_attention.py` additionally asserts that the full model produces identical logits, loss, and parameter gradients on both kernels for the matched, incorrect, and no-op conditions.
 
 Two traps are worth recording for anyone editing that file. Triton's real type system makes runtime float arguments, literals, and `tl.where` results all fp32, but Dynamo's *mock* kernel trace under `torch.compile` types a Python float argument as fp64, which surfaces as `Loop-carried variable dk has initial type fp32 but is re-assigned to fp64`. The fix is to keep the scale off the loop-carried accumulators entirely rather than to cast it — `sm_scale.to(tl.float32)` fails under the same mock, because there the argument really is a bare Python float. And `TRITON_F32_DEFAULT=ieee` is what proves exactness; without it TF32 puts a uniform 1e-3 floor under every comparison and a correct kernel looks broken.
 
 `configs/pilot_gpt2_small_v3.yaml` is byte-identical to v2 except for `prior.kernel: triton`, so v2 and v3 are the same experiment on two kernels and their losses are directly comparable.
+
+### What the kernel actually costs, measured end to end
+
+The microbenchmark understates the picture, so here is the same comparison from real training steps on the same L40S, seed 101, `matched_program_prior` unless noted:
+
+| config | condition | s/step | tokens/s |
+|---|---|---:|---:|
+| v2 (FlexAttention) | `matched_program_prior` | 5.361 | 24415 |
+| v2 (FlexAttention) | `flex_noop` | 0.979 | 133857 |
+| v3 (Triton) | `matched_program_prior` | 1.375 | 95098 |
+| v3 (Triton) | `incorrect_program_prior` | 1.398 | — |
+| v3 (Triton) | `flex_noop` | 1.368 | — |
+
+The `flex_noop` row under v3 is the load-bearing one. That condition runs the same Triton kernel with `APPLY_PRIOR=False`, so the distance between it and the two prior arms is the entire cost of carrying the prior: about 0.03 s/step, or two percent. Against v2's 4.38 s/step of prior overhead that is a factor of roughly 150, and it is the number the whole exercise was aimed at — the prior is now effectively free.
+
+The remaining 0.39 s/step between v3 `flex_noop` and v2 `flex_noop` is not the prior at all. It is the cost of running my kernel instead of FlexAttention on a computation neither one is doing anything special with, and it applies to all twelve layers whether or not they carry a program. Net of both effects the prior arms run 3.90x faster than v2.
+
+That 0.39 s/step is an open question worth someone's time. The microbenchmark at the exact training shape (B=32 H=12 T=512 D=64) puts the Triton kernel at 0.693 ms against FlexAttention's 0.551, which over the 96 attention calls in an optimizer step predicts a 13 ms gap, not 390 ms. The two measurements disagree by a factor of 29, so at least one of them is not measuring what it appears to. Resolving that is the first thing to look at before trusting either number, and it is worth resolving: closing the gap entirely would put the prior arms at about 1.0 s/step, which is parity with an unmodified no-prior baseline.
+
+A launch-geometry sweep at the training shape (BLOCK_M/BLOCK_N in 64/128, num_warps in 4/8, num_stages in 2/3/4) found the existing defaults — 64x64, 4 warps, 3 stages — already optimal; 8 warps is 1.6x worse. `_blocks` clamps the block size to 64, so the 128 and 256 rows of that sweep were silently no-ops and remain untested. `PROGATTN_BLOCK`, `PROGATTN_BLOCK_N`, `PROGATTN_WARPS` and `PROGATTN_STAGES` are left in place to re-run the sweep on a different accelerator.
+
+### The v3 retrain was deliberately not run
+
+`configs/pilot_gpt2_small_v3.yaml` is validated but no full v3 run exists. On a 12-step comparison against v2 from the identical frozen initial state, the two kernels agree to 6.5e-5 in loss and 2.1e-3 in gradient norm, drifting slowly in the way two exact implementations with different summation order do, so a full retrain was judged unlikely to move any conclusion and the user chose not to spend the roughly seven GPU-hours. The v2 numbers in the table above remain the result of record.
+
+The more valuable use of the speedup, whenever someone returns to this, is still additional seeds. The v2 effect is 0.0094 nats from a single seed, and no amount of kernel work substitutes for knowing whether that survives a second one.
