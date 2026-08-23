@@ -100,6 +100,7 @@ def _fwd(
     off_bh = tl.program_id(1)
     off_b = off_bh // H
     off_h = off_bh % H
+    scale = sm_scale.to(tl.float32)
 
     offs_m = start_m * BLOCK_M + tl.arange(0, BLOCK_M)
     offs_d = tl.arange(0, BLOCK_D)
@@ -143,7 +144,7 @@ def _fwd(
         k = tl.load(k_ptrs, mask=n_valid[:, None], other=0.0)
         v = tl.load(v_ptrs, mask=n_valid[:, None], other=0.0)
 
-        qk = tl.dot(q, tl.trans(k)).to(tl.float32) * sm_scale
+        qk = tl.dot(q, tl.trans(k)).to(tl.float32) * scale
         if APPLY_PRIOR:
             pref = _preferred(
                 offs_m[:, None],
@@ -266,6 +267,7 @@ def _bwd_dkdv(
     off_bh = tl.program_id(1)
     off_b = off_bh // H
     off_h = off_bh % H
+    scale = sm_scale.to(tl.float32)
     base = off_b * stride_qb + off_h * stride_qh
     lbase = off_b * stride_lb + off_h * stride_lh
 
@@ -307,7 +309,7 @@ def _bwd_dkdv(
         lse = tl.load(L + lbase + offs_m * stride_lm, mask=m_valid, other=0.0)
         delta = tl.load(Delta + lbase + offs_m * stride_lm, mask=m_valid, other=0.0)
 
-        qk = tl.dot(q, tl.trans(k)).to(tl.float32) * sm_scale
+        qk = tl.dot(q, tl.trans(k)).to(tl.float32) * scale
         if APPLY_PRIOR:
             pref = _preferred(
                 offs_m[:, None],
@@ -328,7 +330,7 @@ def _bwd_dkdv(
         dv += tl.dot(tl.trans(p).to(do.dtype), do).to(tl.float32)
         dp = tl.dot(do, tl.trans(v)).to(tl.float32)
         ds = p * (dp - delta[:, None])
-        dk += tl.dot(tl.trans(ds).to(q.dtype), q).to(tl.float32) * sm_scale
+        dk += tl.dot(tl.trans(ds).to(q.dtype), q).to(tl.float32) * scale
 
     tl.store(
         DK + base + offs_n[:, None] * stride_qm + offs_d[None, :] * stride_qd,
@@ -377,6 +379,7 @@ def _bwd_dq(
     off_bh = tl.program_id(1)
     off_b = off_bh // H
     off_h = off_bh % H
+    scale = sm_scale.to(tl.float32)
     base = off_b * stride_qb + off_h * stride_qh
     lbase = off_b * stride_lb + off_h * stride_lh
 
@@ -418,7 +421,7 @@ def _bwd_dq(
             mask=n_valid[:, None],
             other=0.0,
         )
-        qk = tl.dot(q, tl.trans(k)).to(tl.float32) * sm_scale
+        qk = tl.dot(q, tl.trans(k)).to(tl.float32) * scale
         if APPLY_PRIOR:
             pref = _preferred(
                 offs_m[:, None],
@@ -439,7 +442,7 @@ def _bwd_dq(
         p = tl.where(keep, tl.exp(qk - lse[:, None]), 0.0).to(tl.float32)
         dp = tl.dot(do, tl.trans(v)).to(tl.float32)
         ds = p * (dp - delta[:, None])
-        dq += tl.dot(ds.to(k.dtype), k).to(tl.float32) * sm_scale
+        dq += tl.dot(ds.to(k.dtype), k).to(tl.float32) * scale
         if APPLY_PRIOR:
             # beta is constant on the preferred set, so its gradient is just the
             # sum of the score gradients there. Accumulating in a register and
